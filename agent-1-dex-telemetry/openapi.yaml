@@ -1,0 +1,348 @@
+openapi: 3.0.3
+info:
+  title: 1E DEX Device Telemetry API
+  description: >
+    Provides access to 1E Digital Employee Experience (DEX) telemetry data.
+    Use this API to query device health scores, performance metrics, application
+    experience data, and identify devices that may need remediation.
+  version: 1.0.0
+  contact:
+    name: 1E DEX Integration
+servers:
+  - url: https://{tenant}.1e.com/api/v1
+    description: 1E DEX SaaS endpoint
+    variables:
+      tenant:
+        description: Your 1E tenant subdomain
+        default: your-tenant
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /devices:
+    get:
+      operationId: listDevices
+      summary: List all managed devices
+      description: >
+        Returns a paginated list of all devices registered in 1E DEX, along
+        with their current health scores and basic metadata.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of devices to return (default 50, max 200)
+          required: false
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          description: Number of records to skip for pagination
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: healthScoreBelow
+          in: query
+          description: Filter devices with a DEX health score below this threshold (0–100)
+          required: false
+          schema:
+            type: number
+            format: float
+        - name: platform
+          in: query
+          description: Filter by OS platform (Windows, macOS)
+          required: false
+          schema:
+            type: string
+            enum: [Windows, macOS]
+      responses:
+        "200":
+          description: A list of devices with summary telemetry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /devices/{deviceId}:
+    get:
+      operationId: getDeviceById
+      summary: Get full telemetry for a specific device
+      description: >
+        Returns detailed telemetry data for a single device including CPU, memory,
+        disk, network, application experience scores, and recent events.
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          description: The unique device identifier from 1E DEX
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detailed device telemetry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /devices/{deviceId}/health:
+    get:
+      operationId: getDeviceHealth
+      summary: Get DEX health score breakdown for a device
+      description: >
+        Returns the composite DEX score and its component scores (stability,
+        performance, responsiveness, sentiment) for a specific device.
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: DEX health score breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceHealth"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /devices/unhealthy:
+    get:
+      operationId: getUnhealthyDevices
+      summary: List devices below a health score threshold
+      description: >
+        Returns devices whose composite DEX score is below the specified threshold.
+        Useful for identifying candidates for remediation or restart.
+      parameters:
+        - name: threshold
+          in: query
+          description: Score threshold (0–100). Devices below this value are returned.
+          required: false
+          schema:
+            type: number
+            format: float
+            default: 60
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of unhealthy devices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /devices/{deviceId}/events:
+    get:
+      operationId: getDeviceEvents
+      summary: Get recent events and alerts for a device
+      description: >
+        Returns a timeline of recent system events, crashes, application errors,
+        and remediation actions for the specified device.
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: since
+          in: query
+          description: ISO 8601 datetime — return events after this timestamp
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Recent device events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEventList"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        1E DEX API key. Generate this from the 1E console under
+        Settings > API Keys. Store securely and pass as the X-API-Key header.
+
+  schemas:
+    DeviceList:
+      type: object
+      properties:
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceSummary"
+
+    DeviceSummary:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        deviceName:
+          type: string
+        platform:
+          type: string
+          enum: [Windows, macOS]
+        user:
+          type: string
+          description: Primary assigned user UPN
+        dexScore:
+          type: number
+          format: float
+          description: Composite DEX health score (0–100)
+        lastSeen:
+          type: string
+          format: date-time
+
+    DeviceDetail:
+      allOf:
+        - $ref: "#/components/schemas/DeviceSummary"
+        - type: object
+          properties:
+            os:
+              type: string
+            osVersion:
+              type: string
+            cpu:
+              type: object
+              properties:
+                utilizationPercent:
+                  type: number
+                score:
+                  type: number
+            memory:
+              type: object
+              properties:
+                totalGb:
+                  type: number
+                utilizationPercent:
+                  type: number
+                score:
+                  type: number
+            disk:
+              type: object
+              properties:
+                freePercent:
+                  type: number
+                score:
+                  type: number
+            network:
+              type: object
+              properties:
+                latencyMs:
+                  type: number
+                score:
+                  type: number
+
+    DeviceHealth:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        compositeScore:
+          type: number
+          format: float
+        stability:
+          type: number
+          format: float
+        performance:
+          type: number
+          format: float
+        responsiveness:
+          type: number
+          format: float
+        sentiment:
+          type: number
+          format: float
+        calculatedAt:
+          type: string
+          format: date-time
+
+    DeviceEventList:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              eventId:
+                type: string
+              type:
+                type: string
+                enum: [crash, error, alert, remediation, restart]
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [low, medium, high, critical]
+              timestamp:
+                type: string
+                format: date-time
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string

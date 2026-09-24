@@ -1,0 +1,323 @@
+openapi: 3.0.3
+info:
+  title: Microsoft Intune Device Management API
+  description: >
+    Provides device management actions via the Microsoft Graph API for Intune-enrolled
+    devices. Use this API to trigger remote actions such as device restarts, sync,
+    wipe, and to query device compliance and status information.
+  version: 1.0.0
+  contact:
+    name: Microsoft Intune Integration
+servers:
+  - url: https://graph.microsoft.com/v1.0
+    description: Microsoft Graph API v1.0
+
+security:
+  - OAuth2ClientCredentials: []
+
+paths:
+  /deviceManagement/managedDevices:
+    get:
+      operationId: listManagedDevices
+      summary: List all Intune-managed devices
+      description: >
+        Returns a list of all devices enrolled in Intune, with their compliance
+        state, OS, and last sync time. Supports filtering by device name or user.
+      parameters:
+        - name: $filter
+          in: query
+          description: >
+            OData filter expression. Examples:
+            deviceName eq 'DESKTOP-ABC123'
+            userPrincipalName eq 'user@contoso.com'
+            complianceState eq 'noncompliant'
+          required: false
+          schema:
+            type: string
+        - name: $top
+          in: query
+          description: Maximum number of results to return (max 1000)
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: $select
+          in: query
+          description: >
+            Comma-separated list of fields to return. Useful for reducing payload size.
+            Example: id,deviceName,userPrincipalName,complianceState,lastSyncDateTime
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of managed devices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedDeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /deviceManagement/managedDevices/{managedDeviceId}:
+    get:
+      operationId: getManagedDevice
+      summary: Get details for a specific managed device
+      description: >
+        Returns full details for a single Intune-managed device including compliance
+        state, OS version, last sync time, enrolled user, and hardware info.
+      parameters:
+        - name: managedDeviceId
+          in: path
+          required: true
+          description: The unique Intune device ID (GUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Managed device details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedDevice"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /deviceManagement/managedDevices/{managedDeviceId}/rebootNow:
+    post:
+      operationId: rebootDevice
+      summary: Restart (reboot) a managed device
+      description: >
+        Sends a remote restart command to the specified Intune-managed device.
+        The device will reboot at the next available opportunity. This action
+        requires DeviceManagementManagedDevices.PrivilegedOperations.All permission.
+      parameters:
+        - name: managedDeviceId
+          in: path
+          required: true
+          description: The unique Intune device ID (GUID) of the device to restart
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Restart command accepted. No content returned.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /deviceManagement/managedDevices/{managedDeviceId}/syncDevice:
+    post:
+      operationId: syncDevice
+      summary: Force a policy sync on a managed device
+      description: >
+        Forces the specified device to immediately check in with Intune and
+        pull the latest policy and configuration assignments.
+      parameters:
+        - name: managedDeviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Sync command accepted. No content returned.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /deviceManagement/managedDevices/{managedDeviceId}/getFileVaultKey:
+    get:
+      operationId: getDeviceComplianceState
+      summary: Get the compliance state of a managed device
+      description: >
+        Returns the current compliance state and policy evaluation details
+        for the specified device.
+      parameters:
+        - name: managedDeviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Compliance state details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /deviceManagement/managedDevices/findByDeviceName:
+    get:
+      operationId: findDeviceByName
+      summary: Look up an Intune device by its hostname
+      description: >
+        Convenience operation that filters managed devices by deviceName.
+        Returns matching device IDs needed for subsequent management actions.
+      parameters:
+        - name: deviceName
+          in: query
+          required: true
+          description: The hostname or device name to search for
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching devices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedDeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    OAuth2ClientCredentials:
+      type: oauth2
+      description: >
+        Microsoft Entra ID (Azure AD) OAuth 2.0 client credentials flow.
+        Register an app in Entra ID with the following Microsoft Graph API
+        application permissions:
+          - DeviceManagementManagedDevices.Read.All
+          - DeviceManagementManagedDevices.PrivilegedOperations.All
+        Then grant admin consent for your tenant.
+      flows:
+        clientCredentials:
+          tokenUrl: https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token
+          scopes:
+            https://graph.microsoft.com/.default: >
+              Access Microsoft Graph API with all consented application permissions
+
+  schemas:
+    ManagedDeviceList:
+      type: object
+      properties:
+        "@odata.context":
+          type: string
+        "@odata.count":
+          type: integer
+        value:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManagedDevice"
+
+    ManagedDevice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Intune device GUID — use this as managedDeviceId in action calls
+        deviceName:
+          type: string
+        userPrincipalName:
+          type: string
+        operatingSystem:
+          type: string
+        osVersion:
+          type: string
+        complianceState:
+          type: string
+          enum: [compliant, noncompliant, unknown, notApplicable, inGracePeriod, configManager]
+        managementState:
+          type: string
+        enrolledDateTime:
+          type: string
+          format: date-time
+        lastSyncDateTime:
+          type: string
+          format: date-time
+        manufacturer:
+          type: string
+        model:
+          type: string
+        serialNumber:
+          type: string
+        azureADDeviceId:
+          type: string
+          description: Entra ID (Azure AD) device object ID — useful for cross-referencing with DEX
+
+    ComplianceState:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        complianceState:
+          type: string
+        lastEvaluatedDateTime:
+          type: string
+          format: date-time
+        policies:
+          type: array
+          items:
+            type: object
+            properties:
+              policyName:
+                type: string
+              status:
+                type: string
+              lastReportedDateTime:
+                type: string
+                format: date-time
+
+  responses:
+    Unauthorized:
+      description: Missing or expired OAuth token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+    Forbidden:
+      description: Insufficient Graph API permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+    NotFound:
+      description: Device not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
